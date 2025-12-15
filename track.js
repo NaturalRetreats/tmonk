@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Change Bill to Link
 // @namespace    http://tampermonkey.net/
-// @version      2025-11-20
+// @version      2025-12-15
 // @description  Navigate from Owner Transactions to Vendor Bills
-// @author       You
+// @author       Natural Retreats Tech
 // @run-at       document-end:
 // @match        https://naturalretreats.trackhs.com/pms/owner/profiles/view*
 // @grant        none
