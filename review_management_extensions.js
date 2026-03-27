@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Review Management Extensions
 // @namespace    http://tampermonkey.net/
-// @version      1
+// @version      2026-03-09
 // @run-at       document-body
 // @match        https://naturalretreats.tracksandbox.io/ngui/crm/surveys/responses/responses*
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -10,15 +10,15 @@
 // ==/UserScript==
 
 let isDirty = false;
+
 function flagDirty(){
-    isDirty = true;    
-}
-function flagClean(){
-    isDirty = false;    
+    isDirty = true;
 }
 
-// to avoid CORS issues we must use the GM_xmlhttprequest rather than fetch as
-// this somehow runs in a hidden window where Track CORS restrictions are not in play
+function flagClean(){
+    isDirty = false;
+}
+
 function makeGetRequest(url) {
     return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
@@ -55,8 +55,6 @@ function makePatchRequest(url, bodyObj) {
     });
 }
 
-// for now we are holding onto the API needed in a cookie that is prompted
-// for on occasion
 function getCookie(name) {
     const nameEQ = name + "=";
     const ca = document.cookie.split(';');
@@ -75,9 +73,8 @@ function getCookie(name) {
     return null; // Return null if the cookie is not found
 }
 
-// function to support the list view page so we can query for a number of
-// reviews at the same time to avoid chattiness
 async function getReviewStatuses(surveyIds) {
+    console.log("Querying for " + surveyIds);
     const statuses = new Map();
     const surveyIdParams = new URLSearchParams();
     surveyIds.forEach((surveyId) => {
@@ -99,20 +96,17 @@ async function getReviewStatuses(surveyIds) {
     return statuses;
 }
 
-// function to support the detail view of a Track survey that supports
-// a single review
 async function getReviewStatus(surveyId) {
     let status = null;
     const url = new URL("https://nrbeapi.dev.naturalretreats.com/management/reviews/track-status/" + surveyId);
     const response = await makeGetRequest(url);
     const foundReview = JSON.parse(response.responseText);
-    if (foundReview){
+    if (foundReview && foundReview.id){
         status = {status: foundReview.isPublished ? "published" : "publishable", response: foundReview.response };
     }
     return status;
 }
 
-// function to allow write backs to our API
 async function saveReviewStatus(surveyId) {
     const nrpublishflag = document.getElementById('nrpublishflag');
     const nrresponse = document.getElementById('nrresponse');
@@ -129,15 +123,18 @@ async function saveReviewStatus(surveyId) {
     const observer = new MutationObserver(async function(mutations, observer) {
         // Handle the mutations here
         for (let mutation of mutations) {
-            if (mutation.type === "childList" && mutation.target.nodeName === "DATATABLE-BODY" ) {
+            console.log(mutation);
+            if (mutation.type === "childList" && mutation.target.nodeName === "DATATABLE-BODY" ) {                
                 var dt = mutation.target;
-
                 var rows = dt.querySelectorAll("datatable-body-row div.datatable-row-center");
                 if (rows.length === 0) continue;
+
+                console.log("List Page Load with " + rows.length + " rows");
 
                 var surveyIds = [...rows].map(function(r) {
                     return r.querySelector("datatable-body-cell:nth-child(1) div").innerText;
                 });
+                console.log("Survey Ids in Grid" + surveyIds);
 
                 const reviewStatuses = await getReviewStatuses(surveyIds);
 
@@ -168,7 +165,7 @@ async function saveReviewStatus(surveyId) {
 
             window.addEventListener('beforeunload', function (e) {
                 if (isDirty) {
-                    console.log("checking status");
+                    console.log("unsaved survey changes");
                     // Cancel the event and show alert that the unsaved changes would be lost.
                     e.preventDefault();
                     // The returnValue property must be set for cross-browser compatibility
@@ -176,66 +173,68 @@ async function saveReviewStatus(surveyId) {
                 }
             });
 
-            if (mutation.type === "childList" && mutation.target.nodeName === "DIV" ) {
+            if (mutation.type === "childList" && mutation.target.nodeName === "DIV" && mutation.target.id === "wrap" ) {
 
                 var url = window.location.href;
                 url = url.split('/');
-                const surveyId = url[url.length - 1];
-                const reviewStatus = await getReviewStatus(surveyId);
-                console.log(reviewStatus);
+                if (!isNaN(url[url.length-1])) {
 
-                var oi = mutation.target;
-                var ter = oi.querySelectorAll("app-response-detail div.container-fluid div.row div.info-pane");
-                if (ter.length > 0 && reviewStatus) {
-                    // add new horizontal rule for pleasantries
-                    const hrs = ter[0].querySelectorAll("hr:first-of-type");
-                    const newhr = hrs[0].cloneNode(true);
-                    ter[0].appendChild(newhr);
+                    const surveyId = url[url.length - 1];
+                    const reviewStatus = await getReviewStatus(surveyId);
+                    console.log(reviewStatus);
 
-                    // add category
-                    const sT = document.createElement("h4");
-                    sT.innerText = 'Website Review';
-                    ter[0].appendChild(sT);
+                    var oi = mutation.target;
+                    var ter = oi.querySelectorAll("app-response-detail div.container-fluid div.row div.info-pane");
+                    if (ter.length > 0 && reviewStatus) {
+                        // add new horizontal rule for pleasantries
+                        const hrs = ter[0].querySelectorAll("hr:first-of-type");
+                        const newhr = hrs[0].cloneNode(true);
+                        ter[0].appendChild(newhr);
 
-                    // configure the data list
-                    const dls = ter[0].querySelectorAll("dl:last-of-type");
-                    const newDl = dls[0].cloneNode(true);
-                    newDl.replaceChildren();
-                    newDl.setAttribute("id", "nrwebsitereview");
+                        // add category
+                        const sT = document.createElement("h4");
+                        sT.innerText = 'Website Review';
+                        ter[0].appendChild(sT);
 
-                    // published flag
-                    const newDt1 = document.createElement("dt");
-                    newDt1.setAttribute("class", "col-sm-4");
-                    newDt1.innerText = "Published";
-                    const newDd1 = document.createElement("dd");
-                    newDd1.setAttribute("class", "col-sm-8 text-truncate");
-                    newDd1.innerHTML = "<input id='nrpublishflag' type='checkbox' " + (reviewStatus.status === "published" ? 'checked' : '') + " />";
-                    newDd1.querySelector('#nrpublishflag').addEventListener('change', flagDirty);
-                    // response
-                    const newDt2 = document.createElement("dt");
-                    newDt2.setAttribute("class", "col-sm-4");
-                    newDt2.innerText = "Response";
-                    const newDd2 = document.createElement("dd");
-                    newDd2.setAttribute("class", "col-sm-8 text-truncate");
-                    newDd2.innerHTML = "<textarea id='nrresponse' rows='8' style='width:100%'>" + reviewStatus.response + "</textarea>";
-                    newDd2.querySelector('#nrresponse').addEventListener('change', flagDirty);
+                        // configure the data list
+                        const dls = ter[0].querySelectorAll("dl:last-of-type");
+                        const newDl = dls[0].cloneNode(true);
+                        newDl.replaceChildren();
+                        newDl.setAttribute("id", "nrwebsitereview");
 
-                    // save button
-                    const newDt3 = document.createElement("button");
-                    newDt3.addEventListener('click', async => saveReviewStatus(surveyId));
-                    newDt3.innerText = "Save Changes";
+                        // published flag
+                        const newDt1 = document.createElement("dt");
+                        newDt1.setAttribute("class", "col-sm-4");
+                        newDt1.innerText = "Published";
+                        const newDd1 = document.createElement("dd");
+                        newDd1.setAttribute("class", "col-sm-8 text-truncate");
+                        newDd1.innerHTML = "<input id='nrpublishflag' type='checkbox' " + (reviewStatus.status === "published" ? 'checked' : '') + " />";
+                        newDd1.querySelector('#nrpublishflag').addEventListener('change', flagDirty);
+                        // response
+                        const newDt2 = document.createElement("dt");
+                        newDt2.setAttribute("class", "col-sm-4");
+                        newDt2.innerText = "Response";
+                        const newDd2 = document.createElement("dd");
+                        newDd2.setAttribute("class", "col-sm-8 text-truncate");
+                        newDd2.innerHTML = "<textarea id='nrresponse' rows='8' style='width:100%'>" + reviewStatus.response + "</textarea>";
+                        newDd2.querySelector('#nrresponse').addEventListener('change', flagDirty);
 
-                    newDl.appendChild(newDt1);
-                    newDl.appendChild(newDd1);
-                    newDl.appendChild(newDt2);
-                    newDl.appendChild(newDd2);
-                    newDl.appendChild(newDt3);
+                        // save button
+                        const newDt3 = document.createElement("button");
+                        newDt3.addEventListener('click', async => saveReviewStatus(surveyId));
+                        newDt3.innerText = "Save Changes";
 
-                    ter[0].appendChild(newDl);
+                        newDl.appendChild(newDt1);
+                        newDl.appendChild(newDd1);
+                        newDl.appendChild(newDt2);
+                        newDl.appendChild(newDd2);
+                        newDl.appendChild(newDt3);
 
-                    observer.disconnect();
+                        ter[0].appendChild(newDl);
+
+                        //observer.disconnect();
+                    }
                 }
-
             }
         }
     });
@@ -245,7 +244,7 @@ async function saveReviewStatus(surveyId) {
 
     let apiKey = getCookie("rmkey");
     if (!apiKey) {
-        apiKey = prompt("Type in the API Key");
+        apiKey = prompt("Please enter a password");
         document.cookie = `rmkey=${apiKey}`;
     }
 
