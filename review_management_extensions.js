@@ -74,7 +74,7 @@ function getCookie(name) {
 }
 
 async function getReviewStatuses(surveyIds) {
-    console.log("Querying for " + surveyIds);
+    //console.log("Querying for " + surveyIds);
     const statuses = new Map();
     const surveyIdParams = new URLSearchParams();
     surveyIds.forEach((surveyId) => {
@@ -123,19 +123,20 @@ async function saveReviewStatus(surveyId) {
     const observer = new MutationObserver(async function(mutations, observer) {
         // Handle the mutations here
         for (let mutation of mutations) {
-            console.log(mutation);
-            if (mutation.type === "childList" && mutation.target.nodeName === "DATATABLE-BODY" ) {                
+            //console.log(mutation);
+            if (mutation.type === "childList"
+                && mutation.target.nodeName === "DATATABLE-BODY"
+                && mutation.removedNodes[0]) {
+
+
                 var dt = mutation.target;
                 var rows = dt.querySelectorAll("datatable-body-row div.datatable-row-center");
                 if (rows.length === 0) continue;
 
-                console.log("List Page Load with " + rows.length + " rows");
-
                 var surveyIds = [...rows].map(function(r) {
                     return r.querySelector("datatable-body-cell:nth-child(1) div").innerText;
                 });
-                console.log("Survey Ids in Grid" + surveyIds);
-
+                
                 const reviewStatuses = await getReviewStatuses(surveyIds);
 
                 rows.forEach((r) => {
@@ -146,8 +147,10 @@ async function saveReviewStatus(surveyId) {
 
                     if (reviewStatus) {
                         var statusElement = r.querySelector("datatable-body-cell:nth-child(5) div");
+                        //console.log(surveyId + ' ' + statusElement.innerText +  '->' + reviewStatus.status);
+                        //statusElement.innerHTML = "<!----><!----><!----> " + "sent" + " <!----><!---->";
+                //        statusElement.title = reviewStatus.response;
                         statusElement.innerText = reviewStatus.status;
-                        statusElement.title = reviewStatus.response;
 
                         // Track appears to use event handler to invoke the detail page despite the
                         // anchor tag so remove event handler by cloning and replacing to ensure
@@ -239,12 +242,26 @@ async function saveReviewStatus(surveyId) {
         }
     });
 
+    var proxied = window.XMLHttpRequest.prototype.open;
+    window.XMLHttpRequest.prototype.open = function() {
+        //this.addEventListener("readystatechange", function() {
+            // Check if the request is complete (readyState 4) and has a response
+            //if (this.readyState === 4 && this.responseText.length > 0 && this.responseURL.includes("/api/crm/surveys/responses/")) {
+            //    var r = JSON.parse(this.responseText);
+            //    r._embedded.responses[0].status = "compete";
+            //    Object.defineProperty(this, 'response', {
+            //            get: function() { return JSON.stringify(r); }
+            //        });
+            //}});
+        return proxied.apply(this, [].slice.call(arguments));
+    };
+
     const targetElement = document.body;
     observer.observe(targetElement, { childList: true, subtree: true });
 
     let apiKey = getCookie("rmkey");
     if (!apiKey) {
-        apiKey = prompt("Please enter a password");
+        apiKey = prompt("Please enter a password","shlt3eTXJ82ayxJaInXLaKHUZdHWFJB9FzOrfGm");
         document.cookie = `rmkey=${apiKey}`;
     }
 
