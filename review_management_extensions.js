@@ -133,7 +133,6 @@ function openApiKeyForm() {
     credPopup.id = "apikeypopup";
     credPopup.style.width = "320px";
     credPopup.style.height = "130px";
-    var f = document.createElement("form");
     var heading = document.createElement("h2");
     heading.innerText = "Enter your API Key";
     var apiKey = document.createElement("input");
@@ -145,17 +144,17 @@ function openApiKeyForm() {
     submit.textContent = "Save";
     submit.addEventListener('click', closeApiKeyForm, false);
     credPopup.appendChild(heading);
-    f.appendChild(apiKey);
-    f.appendChild(submit);
-    credPopup.appendChild(f);
+    credPopup.appendChild(apiKey);
+    credPopup.appendChild(submit);
     document.body.appendChild(credPopup);
-    credPopup.showModal();
-    apiKey.dispatchEvent(new Event('input', { bubbles: true }));
+    credPopup.showModal();    
 }
 function closeApiKeyForm() {
     var apiKey = document.getElementById("apikey").value;
     if (apiKey) document.cookie = `rmkey=${apiKey}`;
     document.getElementById("apikeypopup").close();
+    window.location.reload();
+
 }
 
 async function saveReviewStatus(surveyId) {
