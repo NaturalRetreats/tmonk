@@ -1,13 +1,35 @@
 // ==UserScript==
 // @name         Review Management Extensions
 // @namespace    http://tampermonkey.net/
-// @version      2026-03-09
+// @version      1
 // @run-at       document-body
 // @match        https://naturalretreats.tracksandbox.io/ngui/crm/surveys/responses/responses*
+// @match        https://naturalretreats.trackhs.com/ngui/crm/surveys/responses/responses*
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // @require      https://cdn.datatables.net/2.3.7/js/dataTables.min.js
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
+
+function getApiHost()
+{
+    if (window.location.href.includes("https://naturalretreats.trackhs.com/"))
+    {
+        return "nrbeapi";
+    } else
+    {
+        return "nrbeapi.stage";
+    }
+}
+
+function safeTextUpdate(element, newText, newTitle) {
+    if (element) {
+        const textNode = Array.from(element.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
+        if (textNode) {
+            textNode.nodeValue = newText;
+            element.setAttribute("title", newTitle);
+        }
+    }
+}
 
 let isDirty = false;
 
@@ -74,7 +96,6 @@ function getCookie(name) {
 }
 
 async function getReviewStatuses(surveyIds) {
-    //console.log("Querying for " + surveyIds);
     const statuses = new Map();
     const surveyIdParams = new URLSearchParams();
     surveyIds.forEach((surveyId) => {
@@ -82,7 +103,7 @@ async function getReviewStatuses(surveyIds) {
         surveyIdParams.append("id", surveyId);
     });
 
-    const url = new URL("https://nrbeapi.dev.naturalretreats.com/management/reviews/track-status?" + surveyIdParams.toString());
+    const url = new URL(`https://${getApiHost()}.naturalretreats.com/management/reviews/track-status?` + surveyIdParams.toString());
     const response = await makeGetRequest(url);
     const foundReviews = JSON.parse(response.responseText);
 
@@ -98,7 +119,7 @@ async function getReviewStatuses(surveyIds) {
 
 async function getReviewStatus(surveyId) {
     let status = null;
-    const url = new URL("https://nrbeapi.dev.naturalretreats.com/management/reviews/track-status/" + surveyId);
+    const url = new URL(`https://${getApiHost()}.naturalretreats.com/management/reviews/track-status/` + surveyId);
     const response = await makeGetRequest(url);
     const foundReview = JSON.parse(response.responseText);
     if (foundReview && foundReview.id){
@@ -107,15 +128,48 @@ async function getReviewStatus(surveyId) {
     return status;
 }
 
+function openApiKeyForm() {
+    const credPopup = document.createElement('dialog');
+    credPopup.id = "apikeypopup";
+    credPopup.style.width = "320px";
+    credPopup.style.height = "130px";
+    var f = document.createElement("form");
+    var heading = document.createElement("h2");
+    heading.innerText = "Enter your API Key";
+    var apiKey = document.createElement("input");
+    apiKey.id = "apikey";
+    apiKey.type= "password";
+    apiKey.name = "apikey";
+    var submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Save";
+    submit.addEventListener('click', closeApiKeyForm, false);
+    credPopup.appendChild(heading);
+    f.appendChild(apiKey);
+    f.appendChild(submit);
+    credPopup.appendChild(f);
+    document.body.appendChild(credPopup);
+    credPopup.showModal();
+    apiKey.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function closeApiKeyForm() {
+    var apiKey = document.getElementById("apikey").value;
+    if (apiKey) document.cookie = `rmkey=${apiKey}`;
+    document.getElementById("apikeypopup").close();
+}
+
 async function saveReviewStatus(surveyId) {
+    document.body.style.cursor = 'progress';
     const nrpublishflag = document.getElementById('nrpublishflag');
     const nrresponse = document.getElementById('nrresponse');
-    const url = new URL('https://nrbeapi.dev.naturalretreats.com/management/reviews/track/' + surveyId + '/status');
+    const url = new URL(`https://${getApiHost()}.naturalretreats.com/management/reviews/track/` + surveyId + '/status');
     await makePatchRequest(url, {published: nrpublishflag.checked, response: nrresponse.value});
     const newValues = await getReviewStatus(surveyId);
     nrpublishflag.check = newValues === "published";
     nrresponse.value = newValues.response;
     flagClean();
+    document.body.style.cursor = 'default';
+    history.back();
 }
 
 (async function() {
@@ -123,20 +177,22 @@ async function saveReviewStatus(surveyId) {
     const observer = new MutationObserver(async function(mutations, observer) {
         // Handle the mutations here
         for (let mutation of mutations) {
-            //console.log(mutation);
+            // Tracks UI utilizes a "DATATABLE-PROGRESS" element to clue the user that
+            // something is loaded. We will fire our update to coincide with that
+            // progress bar being removed to start our loading
             if (mutation.type === "childList"
                 && mutation.target.nodeName === "DATATABLE-BODY"
-                && mutation.removedNodes[0]) {
-
-
+                && mutation.removedNodes[0] && mutation.removedNodes[0].nodeName === "DATATABLE-PROGRESS") {
+                document.body.style.cursor = 'progress';
                 var dt = mutation.target;
+
                 var rows = dt.querySelectorAll("datatable-body-row div.datatable-row-center");
                 if (rows.length === 0) continue;
 
                 var surveyIds = [...rows].map(function(r) {
                     return r.querySelector("datatable-body-cell:nth-child(1) div").innerText;
                 });
-                
+
                 const reviewStatuses = await getReviewStatuses(surveyIds);
 
                 rows.forEach((r) => {
@@ -147,10 +203,8 @@ async function saveReviewStatus(surveyId) {
 
                     if (reviewStatus) {
                         var statusElement = r.querySelector("datatable-body-cell:nth-child(5) div");
-                        //console.log(surveyId + ' ' + statusElement.innerText +  '->' + reviewStatus.status);
-                        //statusElement.innerHTML = "<!----><!----><!----> " + "sent" + " <!----><!---->";
-                //        statusElement.title = reviewStatus.response;
-                        statusElement.innerText = reviewStatus.status;
+
+                        safeTextUpdate(statusElement, reviewStatus.status, reviewStatus.response);
 
                         // Track appears to use event handler to invoke the detail page despite the
                         // anchor tag so remove event handler by cloning and replacing to ensure
@@ -161,6 +215,7 @@ async function saveReviewStatus(surveyId) {
                     }
 
                 });
+                document.body.style.cursor = 'default';
             }
 
             const reviewElement = document.getElementById("nrwebsitereview");
@@ -234,35 +289,18 @@ async function saveReviewStatus(surveyId) {
                         newDl.appendChild(newDt3);
 
                         ter[0].appendChild(newDl);
-
-                        //observer.disconnect();
                     }
                 }
             }
         }
     });
 
-    var proxied = window.XMLHttpRequest.prototype.open;
-    window.XMLHttpRequest.prototype.open = function() {
-        //this.addEventListener("readystatechange", function() {
-            // Check if the request is complete (readyState 4) and has a response
-            //if (this.readyState === 4 && this.responseText.length > 0 && this.responseURL.includes("/api/crm/surveys/responses/")) {
-            //    var r = JSON.parse(this.responseText);
-            //    r._embedded.responses[0].status = "compete";
-            //    Object.defineProperty(this, 'response', {
-            //            get: function() { return JSON.stringify(r); }
-            //        });
-            //}});
-        return proxied.apply(this, [].slice.call(arguments));
-    };
-
     const targetElement = document.body;
     observer.observe(targetElement, { childList: true, subtree: true });
 
     let apiKey = getCookie("rmkey");
     if (!apiKey) {
-        apiKey = prompt("Please enter a password","shlt3eTXJ82ayxJaInXLaKHUZdHWFJB9FzOrfGm");
-        document.cookie = `rmkey=${apiKey}`;
+        openApiKeyForm();
     }
 
 })();
