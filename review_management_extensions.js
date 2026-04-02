@@ -21,12 +21,24 @@ function getApiHost()
     }
 }
 
-function safeTextUpdate(element, newText, newTitle) {
+function safeTextUpdate(surveyId, element, newText, newTitle) {
     if (element) {
         const textNode = Array.from(element.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
         if (textNode) {
-            textNode.nodeValue = newText;
+            textNode.nodeValue = " " + newText + " ";
             element.setAttribute("title", newTitle);
+        }
+    }
+}
+
+const statusMap = new Map();
+
+function resetTrackValue(surveyId, element) {
+    if (element) {
+        const textNode = Array.from(element.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
+        if (textNode) {
+            textNode.nodeValue = " " + statusMap.get(parseInt(surveyId, 10)) + " ";
+            element.removeAttribute("title");
         }
     }
 }
@@ -131,8 +143,8 @@ async function getReviewStatus(surveyId) {
 function openApiKeyForm() {
     const credPopup = document.createElement('dialog');
     credPopup.id = "apikeypopup";
-    credPopup.style.width = "320px";
-    credPopup.style.height = "130px";
+    credPopup.style.width = "350px";
+    credPopup.style.height = "480px";
     var heading = document.createElement("h2");
     heading.innerText = "Enter your API Key";
     var apiKey = document.createElement("input");
@@ -147,7 +159,7 @@ function openApiKeyForm() {
     credPopup.appendChild(apiKey);
     credPopup.appendChild(submit);
     document.body.appendChild(credPopup);
-    credPopup.showModal();    
+    credPopup.showModal();
 }
 function closeApiKeyForm() {
     var apiKey = document.getElementById("apikey").value;
@@ -196,14 +208,15 @@ async function saveReviewStatus(surveyId) {
 
                 rows.forEach((r) => {
                     var surveyIdElement = r.querySelector("datatable-body-cell:nth-child(1) div");
+                    var statusElement = r.querySelector("datatable-body-cell:nth-child(5) div");
                     var surveyId = surveyIdElement.innerText;
+                    resetTrackValue(surveyId, statusElement);
 
                     const reviewStatus = reviewStatuses.get(surveyId);
 
                     if (reviewStatus) {
-                        var statusElement = r.querySelector("datatable-body-cell:nth-child(5) div");
 
-                        safeTextUpdate(statusElement, reviewStatus.status, reviewStatus.response);
+                        safeTextUpdate(surveyId, statusElement, reviewStatus.status, reviewStatus.response);
 
                         // Track appears to use event handler to invoke the detail page despite the
                         // anchor tag so remove event handler by cloning and replacing to ensure
@@ -293,6 +306,23 @@ async function saveReviewStatus(surveyId) {
             }
         }
     });
+
+    var proxied = window.XMLHttpRequest.prototype.open;
+    window.XMLHttpRequest.prototype.open = function() {
+        this.addEventListener("readystatechange", function() {
+            // Check if the request is complete (readyState 4) and has a response
+            // capture from the API call the original values because
+            // we will have to manage restoring this as a user pages
+            if (this.readyState === 4 && this.responseText.length > 0 && this.responseURL.includes("/api/crm/surveys/responses/")) {
+                var r = JSON.parse(this.responseText);
+                r._embedded.responses.forEach((sr) => {
+                    statusMap.set(sr.id, sr.status);
+                });
+            }
+
+        });
+        return proxied.apply(this, [].slice.call(arguments));
+    };
 
     const targetElement = document.body;
     observer.observe(targetElement, { childList: true, subtree: true });
