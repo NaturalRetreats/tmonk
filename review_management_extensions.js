@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Review Management Extensions
 // @namespace    http://tampermonkey.net/
-// @version      1
+// @version      2
 // @run-at       document-body
 // @match        https://naturalretreats.tracksandbox.io/ngui/crm/surveys/responses/responses*
 // @match        https://naturalretreats.trackhs.com/ngui/crm/surveys/responses/responses*
@@ -33,13 +33,16 @@ function safeTextUpdate(surveyId, element, newText, newTitle) {
 
 const statusMap = new Map();
 
-function resetTrackValue(surveyId, element) {
-    if (element) {
-        const textNode = Array.from(element.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
+function resetTrackValue(surveyId, statusElement, linkElement) {
+    if (statusElement) {
+        const textNode = Array.from(statusElement.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
         if (textNode) {
             textNode.nodeValue = " " + statusMap.get(parseInt(surveyId, 10)) + " ";
-            element.removeAttribute("title");
+            statusElement.removeAttribute("title");
         }
+    }
+    if (linkElement) {
+        linkElement.href = "/ngui/crm/surveys/responses/responses/" + surveyId;
     }
 }
 
@@ -209,8 +212,9 @@ async function saveReviewStatus(surveyId) {
                 rows.forEach((r) => {
                     var surveyIdElement = r.querySelector("datatable-body-cell:nth-child(1) div");
                     var statusElement = r.querySelector("datatable-body-cell:nth-child(5) div");
+                    var linkElement = r.querySelector("datatable-body-cell:nth-child(7) div a");
                     var surveyId = surveyIdElement.innerText;
-                    resetTrackValue(surveyId, statusElement);
+                    resetTrackValue(surveyId, statusElement, linkElement);
 
                     const reviewStatus = reviewStatuses.get(surveyId);
 
